@@ -1,5 +1,4 @@
-gradio
-pandas
+streamlit
 librosa
 numpy
 scipy
