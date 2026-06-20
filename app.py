@@ -915,7 +915,7 @@ with tab_batch:
                 try:
                     q_hashes, _, _, _ = process_audio_bytes(bf.getvalue(), suffix=suffix)
                     # Get matches without minimum threshold
-                    best, score, _, _, _ = match_query(q_hashes, song_database)
+                    best, score, _, _, _ = match_query(q_hashes, song_database, id_to_name)
                     if best and score > 0:
                         prediction = os.path.splitext(os.path.basename(best))[0]
                     else:
