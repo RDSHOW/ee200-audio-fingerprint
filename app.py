@@ -372,37 +372,39 @@ def generate_hashes(peaks, fan_value=15, min_time_delta=5, max_time_delta=100):
     return hashes
 
 
-def match_query(query_hashes, song_database):
+def match_query(query_hashes, song_database, id_to_name):
     """
-    Enhanced match function that returns the best match and candidate scores.
+    Match query hashes against the database.
+    song_database entries are (song_id, t1); names are resolved via id_to_name.
+    Returns best_song_name, max_aligned, best_offsets, candidate_scores, total_hashes.
     """
-    matches = {}
+    matches = {}  # song_id -> [offsets]
     for hash_key, t1_query in query_hashes:
         if hash_key in song_database:
-            for song_name, t1_database in song_database[hash_key]:
+            for song_id, t1_database in song_database[hash_key]:
                 offset = t1_database - t1_query
-                if song_name not in matches:
-                    matches[song_name] = []
-                matches[song_name].append(offset)
+                if song_id not in matches:
+                    matches[song_id] = []
+                matches[song_id].append(offset)
 
-    best_song = None
+    best_id = None
     max_aligned_offsets = 0
     best_offsets = []
     candidate_scores = {}
 
-    for song_name, offsets in matches.items():
-        if len(offsets) > 0:
+    for song_id, offsets in matches.items():
+        if offsets:
             offset_counts = Counter(offsets)
-            most_common_offset, peak_count = offset_counts.most_common(1)[0]
+            _, peak_count = offset_counts.most_common(1)[0]
+            song_name = id_to_name[song_id]
             candidate_scores[song_name] = peak_count
             if peak_count > max_aligned_offsets:
                 max_aligned_offsets = peak_count
-                best_song = song_name
+                best_id = song_id
                 best_offsets = offsets
 
-    # Sort candidates descending by score
+    best_song = id_to_name[best_id] if best_id is not None else None
     candidate_scores = dict(sorted(candidate_scores.items(), key=lambda x: x[1], reverse=True))
-
     return best_song, max_aligned_offsets, best_offsets, candidate_scores, len(query_hashes)
 
 
@@ -437,26 +439,47 @@ def process_audio_bytes(file_bytes, suffix=".wav"):
 
 @st.cache_resource(show_spinner=False)
 def load_database():
-    """Load the song database — tries compressed deploy file first, then plain pkl."""
+    """
+    Load the optimised song database.
+    Returns (inner_db, id_to_name) where
+      inner_db  : {hash_key: [(song_id, t1), ...]}
+      id_to_name: {song_id: song_name}
+    Falls back to the plain pickle if the optimised file is not found.
+    """
     base_dir = os.path.dirname(__file__)
 
-    # Priority order: correct-format compressed → plain pkl
-    candidates = [
-        ("song_database_deploy.pkl.gz", "gz"),
-        ("song_database.pkl",           "pkl"),
-    ]
+    # ── optimised format (xz or gz) ──────────────────────────────────────────
+    for fname, opener in [
+        ("song_database_optimized.pkl.xz", lzma.open),
+        ("song_database_optimized.pkl.gz", gzip.open),
+    ]:
+        path = os.path.join(base_dir, fname)
+        if os.path.exists(path):
+            with opener(path, "rb") as f:
+                raw = pickle.load(f)
+            song_map  = raw["song_map"]            # {name: id}
+            inner_db  = raw["db"]                  # {hash_key: [(id, t1), ...]}
+            id_to_name = {v: k for k, v in song_map.items()}
+            return inner_db, id_to_name
 
-    for filename, fmt in candidates:
-        db_path = os.path.join(base_dir, filename)
-        if os.path.exists(db_path):
-            if fmt == "gz":
-                with gzip.open(db_path, "rb") as f:
-                    return pickle.load(f)
-            else:
-                with open(db_path, "rb") as f:
-                    return pickle.load(f)
+    # ── legacy plain-pickle fallback ─────────────────────────────────────────
+    for fname, opener in [
+        ("song_database_deploy.pkl.gz", gzip.open),
+        ("song_database.pkl",           open),
+    ]:
+        path = os.path.join(base_dir, fname)
+        if os.path.exists(path):
+            with opener(path, "rb") as f:
+                raw = pickle.load(f)
+            # raw = {hash_key: [(song_name, t1), ...]}
+            # Convert to integer-ID format on-the-fly
+            all_names  = sorted({name for entries in raw.values() for name, _ in entries})
+            name_to_id = {n: i for i, n in enumerate(all_names)}
+            id_to_name = {i: n for i, n in enumerate(all_names)}
+            inner_db   = {k: [(name_to_id[n], t) for n, t in v] for k, v in raw.items()}
+            return inner_db, id_to_name
 
-    st.error("❌ No song database file found. Please place `song_database_deploy.pkl.gz` in the same directory as app.py.")
+    st.error("❌ No song database file found. Place `song_database_optimized.pkl.xz` next to app.py.")
     st.stop()
 
 
@@ -621,9 +644,9 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 with st.spinner("🔄 Loading song database…"):
-    song_database = load_database()
+    song_database, id_to_name = load_database()
 
-total_songs = len(set(name for entries in song_database.values() for name, _ in entries))
+total_songs    = len(id_to_name)
 total_hashes_db = sum(len(v) for v in song_database.values())
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -651,7 +674,7 @@ with tab_library:
         """, unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
-    song_names = sorted(set(name for entries in song_database.values() for name, _ in entries))
+    song_names = sorted(id_to_name.values())
     st.markdown(f'<div class="section-header">Indexed Songs</div>', unsafe_allow_html=True)
     st.markdown(f'<div class="section-sub">The database contains the following {len(song_names)} songs ready for identification</div>', unsafe_allow_html=True)
 
@@ -713,7 +736,7 @@ with tab_identify:
 
             # Actual matching
             best_song, max_aligned, best_offsets, candidate_scores, total_q_hashes = match_query(
-                query_hashes, song_database
+                query_hashes, song_database, id_to_name
             )
 
             sim_times[3] = f"{random.randint(90, 250)} ms"
@@ -796,10 +819,13 @@ with tab_identify:
                 if query_offset_seconds < 0:
                     query_offset_seconds = 0
 
+                # Resolve best_song name → id for efficient lookup
+                name_to_id = {v: k for k, v in id_to_name.items()}
+                best_song_id = name_to_id.get(best_song)
                 full_song_peaks_set = set()
                 for hash_key, entries in song_database.items():
-                    for sname, t1 in entries:
-                        if sname == best_song:
+                    for sid, t1 in entries:
+                        if sid == best_song_id:
                             f1, f2, td = hash_key
                             full_song_peaks_set.add((f1, t1))
                             full_song_peaks_set.add((f2, t1 + td))
