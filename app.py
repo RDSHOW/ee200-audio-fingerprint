@@ -21,6 +21,7 @@ import io
 import csv
 import warnings
 import logging
+import subprocess
 
 # Suppress noisy libmad / audioread MP3-header warnings in logs
 logging.getLogger("audioread").setLevel(logging.ERROR)
@@ -431,14 +432,39 @@ def process_audio_file(file_path):
 
 
 def process_audio_bytes(file_bytes, suffix=".wav"):
-    """Process audio from uploaded bytes (Streamlit UploadedFile)."""
+    """
+    Process audio from uploaded bytes.
+    MP3 files are first converted to WAV via ffmpeg to avoid
+    libmad C-level stderr noise (Illegal Audio-MPEG-Header warnings).
+    """
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
         tmp.write(file_bytes)
         tmp_path = tmp.name
+
+    wav_path = None
     try:
-        return process_audio_file(tmp_path)
+        if suffix.lower() == ".mp3":
+            # Convert MP3 → WAV with ffmpeg so librosa uses soundfile (no libmad)
+            wav_path = tmp_path[:-4] + "_converted.wav"
+            subprocess.run(
+                [
+                    "ffmpeg", "-y",
+                    "-i", tmp_path,
+                    "-ar", "22050",
+                    "-ac", "1",
+                    "-loglevel", "error",
+                    wav_path,
+                ],
+                check=True,
+            )
+            return process_audio_file(wav_path)
+        else:
+            return process_audio_file(tmp_path)
     finally:
-        os.unlink(tmp_path)
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+        if wav_path and os.path.exists(wav_path):
+            os.unlink(wav_path)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
