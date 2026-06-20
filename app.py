@@ -824,7 +824,14 @@ with tab_identify:
                 st.markdown("---")
                 st.markdown(f"""
                 <div class="section-header">Step 1 · Feature Extraction</div>
-                <div class="section-sub">"From spectrogram to constellation"</div>
+                <div class="section-sub">From spectrogram to constellation</div>
+                <p style="color:{SUBTLE_TEXT};font-size:0.92rem;line-height:1.7;margin:8px 0 20px 0;">
+                    The clip was converted into a time-frequency map (left); brighter means louder
+                    at that frequency and moment. From that rich image, only the
+                    <b style="color:{CYAN};">{len(query_peaks):,} most prominent peaks</b>
+                    were kept (right). Discarding amplitude and phase makes the fingerprint
+                    robust to EQ, volume changes, and noise.
+                </p>
                 """, unsafe_allow_html=True)
 
                 col1, col2 = st.columns(2)
@@ -839,10 +846,6 @@ with tab_identify:
 
                 # STEP 2: Database Search
                 st.markdown("---")
-                st.markdown(f"""
-                <div class="section-header">Step 2 · Database Search</div>
-                <div class="section-sub">"Where in the song?"</div>
-                """, unsafe_allow_html=True)
 
                 offset_counts = Counter(best_offsets)
                 most_common_offset, _ = offset_counts.most_common(1)[0]
@@ -853,7 +856,41 @@ with tab_identify:
                 if query_offset_seconds < 0:
                     query_offset_seconds = 0
 
-                # Resolve best_song name → id for efficient lookup
+                offset_min = int(query_offset_seconds // 60)
+                offset_sec = query_offset_seconds % 60
+                end_sec    = query_offset_seconds + query_duration_seconds
+                end_min    = int(end_sec // 60)
+                end_sec_r  = end_sec % 60
+
+                st.markdown(f"""
+                <div class="section-header">Step 2 · Database Search</div>
+                <div class="section-sub">Where in the song?</div>
+                <p style="color:{SUBTLE_TEXT};font-size:0.92rem;line-height:1.7;margin:8px 0 16px 0;">
+                    The <b style="color:{CYAN};">{total_q_hashes:,} fingerprint hashes</b> were looked up
+                    against every indexed track. Each hash encodes a pair of spectral peaks and their
+                    time gap — a compact, noise-robust fingerprint of the audio texture.
+                    Your {query_duration_seconds:.1f}s clip best aligned with
+                    <i style="color:{WHITE};">{display_name}</i> at timestamp
+                    <b style="color:{ORANGE};">{offset_min:02d}:{offset_sec:05.2f}</b>.
+                </p>
+                """, unsafe_allow_html=True)
+
+                # Lightweight alignment card
+                st.markdown(f"""
+                <div class="glass-card" style="text-align:center;padding:28px;">
+                    <div style="font-size:0.8rem;font-weight:700;letter-spacing:3px;
+                                text-transform:uppercase;color:{CYAN};margin-bottom:10px;">📍 Query Aligned At</div>
+                    <div style="font-size:2rem;font-weight:900;color:{WHITE};margin-bottom:6px;">
+                        {offset_min:02d}:{offset_sec:05.2f} &rarr; {end_min:02d}:{end_sec_r:05.2f}
+                    </div>
+                    <div style="font-size:0.85rem;color:{SUBTLE_TEXT};">
+                        Your <b style="color:{WHITE};">{query_duration_seconds:.1f}s</b> clip
+                        matches this segment of <b style="color:{WHITE};">{display_name}</b>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+
+                # Full song constellation with aligned window
                 name_to_id = {v: k for k, v in id_to_name.items()}
                 best_song_id = name_to_id.get(best_song)
                 full_song_peaks_set = set()
@@ -872,7 +909,6 @@ with tab_identify:
                     for fp, ft in full_song_peaks_set:
                         if int(fp) < dummy_spec.shape[0] and int(ft) < dummy_spec.shape[1]:
                             dummy_spec[int(fp), int(ft)] = -10.0
-
                     fig_full = plot_full_song_constellation_with_window(
                         dummy_spec, full_peaks_arr, query_sr,
                         query_offset_seconds, query_duration_seconds,
@@ -880,14 +916,20 @@ with tab_identify:
                     )
                     st.pyplot(fig_full)
                     plt.close(fig_full)
-                else:
-                    st.info("Full song constellation data not available for visualization.")
+                    del dummy_spec, full_peaks_arr, full_song_peaks_set
 
                 # STEP 3: The Proof
                 st.markdown("---")
                 st.markdown(f"""
                 <div class="section-header">Step 3 · The Proof</div>
-                <div class="section-sub">"The alignment spike"</div>
+                <div class="section-sub">The alignment spike</div>
+                <p style="color:{SUBTLE_TEXT};font-size:0.92rem;line-height:1.7;margin:8px 0 20px 0;">
+                    Every matched hash votes for a time offset (database frame minus query frame).
+                    Chance matches scatter votes randomly, forming a flat noise floor.
+                    A genuine match makes them converge:
+                    <b style="color:{ORANGE};">{max_aligned:,} hashes agreed on a single offset</b>.
+                    That spike cannot be a coincidence.
+                </p>
                 """, unsafe_allow_html=True)
 
                 fig_hist = plot_offset_histogram(best_offsets, query_sr, hop_length=hop_length)
