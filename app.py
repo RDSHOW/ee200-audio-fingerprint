@@ -3,7 +3,8 @@
 A Shazam-style audio identification web app built with Streamlit.
 """
 
-import streamlit as st
+import gradio as gr
+import pandas as pd
 import librosa
 import librosa.display
 import numpy as np
@@ -28,329 +29,6 @@ logging.getLogger("audioread").setLevel(logging.ERROR)
 warnings.filterwarnings("ignore", message=".*Illegal Audio-MPEG-Header.*")
 warnings.filterwarnings("ignore", message=".*resync.*")
 os.environ.setdefault("AUDIOREAD_BACKEND", "ffmpeg")  # prefer ffmpeg over libmad
-
-# ─── Page Config ─────────────────────────────────────────────────────────────
-st.set_page_config(
-    page_title="Audio Fingerprint · EE200",
-    page_icon="🎵",
-    layout="wide",
-    initial_sidebar_state="collapsed",
-)
-
-# ─── Global Matplotlib Dark Style ────────────────────────────────────────────
-plt.style.use("dark_background")
-matplotlib.rcParams.update({
-    "figure.facecolor": "#0e1117",
-    "axes.facecolor": "#0e1117",
-    "savefig.facecolor": "#0e1117",
-    "text.color": "white",
-    "axes.labelcolor": "white",
-    "xtick.color": "#888",
-    "ytick.color": "#888",
-    "axes.edgecolor": "#333",
-    "grid.color": "#222",
-    "font.family": "sans-serif",
-})
-
-# ─── Color Palette ───────────────────────────────────────────────────────────
-CYAN = "#00e5ff"
-ORANGE = "#f59e0b"
-DARK_BG = "#0e1117"
-CARD_BG = "#161b22"
-BORDER = "#30363d"
-SUBTLE_TEXT = "#8b949e"
-WHITE = "#e6edf3"
-
-# ─── Inject Custom CSS ──────────────────────────────────────────────────────
-st.markdown(f"""
-<style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
-
-    /* Global */
-    html, body, [class*="css"] {{
-        font-family: 'Inter', sans-serif;
-    }}
-    .stApp {{
-        background-color: {DARK_BG};
-    }}
-
-    /* Hide default hamburger & footer */
-    #MainMenu {{visibility: hidden;}}
-    footer {{visibility: hidden;}}
-
-    /* Tab styling */
-    .stTabs [data-baseweb="tab-list"] {{
-        gap: 8px;
-        background-color: {CARD_BG};
-        border-radius: 12px;
-        padding: 6px;
-        border: 1px solid {BORDER};
-    }}
-    .stTabs [data-baseweb="tab"] {{
-        border-radius: 8px;
-        padding: 10px 24px;
-        font-weight: 600;
-        color: {SUBTLE_TEXT};
-        background-color: transparent;
-    }}
-    .stTabs [aria-selected="true"] {{
-        background: linear-gradient(135deg, {CYAN}22, {CYAN}11);
-        color: {CYAN} !important;
-        border-bottom: none;
-    }}
-
-    /* Card containers */
-    .glass-card {{
-        background: {CARD_BG};
-        border: 1px solid {BORDER};
-        border-radius: 16px;
-        padding: 24px;
-        margin-bottom: 16px;
-    }}
-
-    /* Pipeline step */
-    .pipeline-step {{
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        padding: 10px 16px;
-        margin: 4px 0;
-        border-radius: 10px;
-        font-family: 'Inter', monospace;
-        font-size: 0.9rem;
-    }}
-    .pipeline-active {{
-        background: linear-gradient(90deg, {CYAN}15, transparent);
-        color: {CYAN};
-        border-left: 3px solid {CYAN};
-    }}
-    .pipeline-done {{
-        color: #3fb950;
-        border-left: 3px solid #3fb95066;
-    }}
-    .pipeline-waiting {{
-        color: {SUBTLE_TEXT};
-        border-left: 3px solid {BORDER};
-        opacity: 0.5;
-    }}
-
-    /* Match banner */
-    .match-banner {{
-        background: linear-gradient(135deg, {CYAN}08, {CYAN}15, {CYAN}05);
-        border: 1px solid {CYAN}44;
-        border-radius: 20px;
-        padding: 40px 48px;
-        text-align: center;
-        margin: 20px 0;
-        position: relative;
-        overflow: hidden;
-    }}
-    .match-banner::before {{
-        content: '';
-        position: absolute;
-        top: -50%;
-        left: -50%;
-        width: 200%;
-        height: 200%;
-        background: radial-gradient(circle at center, {CYAN}08, transparent 60%);
-        animation: pulse-glow 3s ease-in-out infinite;
-    }}
-    @keyframes pulse-glow {{
-        0%, 100% {{ opacity: 0.5; transform: scale(1); }}
-        50% {{ opacity: 1; transform: scale(1.05); }}
-    }}
-    .match-label {{
-        font-size: 0.85rem;
-        font-weight: 700;
-        letter-spacing: 4px;
-        text-transform: uppercase;
-        color: {CYAN};
-        margin-bottom: 8px;
-        position: relative;
-    }}
-    .match-song {{
-        font-size: 2.5rem;
-        font-weight: 900;
-        color: {WHITE};
-        margin-bottom: 16px;
-        position: relative;
-        line-height: 1.2;
-    }}
-    .match-stats {{
-        display: flex;
-        justify-content: center;
-        gap: 40px;
-        position: relative;
-    }}
-    .stat-item {{
-        text-align: center;
-    }}
-    .stat-value {{
-        font-size: 1.6rem;
-        font-weight: 800;
-        color: {ORANGE};
-    }}
-    .stat-label {{
-        font-size: 0.75rem;
-        color: {SUBTLE_TEXT};
-        text-transform: uppercase;
-        letter-spacing: 1px;
-        margin-top: 2px;
-    }}
-
-    /* No match banner */
-    .no-match-banner {{
-        background: linear-gradient(135deg, #f8514922, #f8514911, #f8514905);
-        border: 1px solid #f8514944;
-        border-radius: 20px;
-        padding: 40px 48px;
-        text-align: center;
-        margin: 20px 0;
-    }}
-    .no-match-label {{
-        font-size: 2rem;
-        font-weight: 800;
-        color: #f85149;
-    }}
-
-    /* Candidate table */
-    .candidate-table {{
-        width: 100%;
-        border-collapse: separate;
-        border-spacing: 0 4px;
-    }}
-    .candidate-table th {{
-        text-align: left;
-        padding: 8px 16px;
-        color: {SUBTLE_TEXT};
-        font-size: 0.75rem;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-        font-weight: 600;
-    }}
-    .candidate-table td {{
-        padding: 12px 16px;
-        background: {DARK_BG};
-        font-size: 0.9rem;
-    }}
-    .candidate-table tr td:first-child {{
-        border-radius: 8px 0 0 8px;
-    }}
-    .candidate-table tr td:last-child {{
-        border-radius: 0 8px 8px 0;
-    }}
-    .candidate-rank {{
-        color: {CYAN};
-        font-weight: 700;
-    }}
-    .candidate-name {{
-        color: {WHITE};
-        font-weight: 500;
-    }}
-    .candidate-score {{
-        color: {ORANGE};
-        font-weight: 700;
-    }}
-
-    /* Section headers */
-    .section-header {{
-        font-size: 1.15rem;
-        font-weight: 700;
-        color: {WHITE};
-        margin-bottom: 4px;
-    }}
-    .section-sub {{
-        font-size: 0.85rem;
-        color: {SUBTLE_TEXT};
-        margin-bottom: 16px;
-        font-style: italic;
-    }}
-
-    /* Library card */
-    .lib-card {{
-        background: {CARD_BG};
-        border: 1px solid {BORDER};
-        border-radius: 12px;
-        padding: 14px 18px;
-        margin: 4px 0;
-        display: flex;
-        align-items: center;
-        gap: 12px;
-    }}
-    .lib-icon {{
-        font-size: 1.3rem;
-    }}
-    .lib-name {{
-        color: {WHITE};
-        font-weight: 500;
-        font-size: 0.92rem;
-    }}
-
-    /* Hero header */
-    .hero {{
-        text-align: center;
-        padding: 32px 0 24px 0;
-    }}
-    .hero-title {{
-        font-size: 2.2rem;
-        font-weight: 900;
-        background: linear-gradient(135deg, {CYAN}, {ORANGE});
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        background-clip: text;
-        margin-bottom: 4px;
-    }}
-    .hero-sub {{
-        color: {SUBTLE_TEXT};
-        font-size: 0.95rem;
-        font-weight: 400;
-    }}
-
-    /* Batch results */
-    .batch-result-row {{
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        padding: 10px 16px;
-        margin: 4px 0;
-        border-radius: 10px;
-        background: {CARD_BG};
-        border: 1px solid {BORDER};
-    }}
-    .batch-file {{
-        color: {WHITE};
-        font-weight: 500;
-        flex: 1;
-    }}
-    .batch-match {{
-        color: {CYAN};
-        font-weight: 600;
-    }}
-    .batch-none {{
-        color: #f85149;
-        font-weight: 600;
-    }}
-
-    /* Download button */
-    .stDownloadButton > button {{
-        background: linear-gradient(135deg, {CYAN}, #0091ea) !important;
-        color: {DARK_BG} !important;
-        font-weight: 700 !important;
-        border: none !important;
-        border-radius: 10px !important;
-        padding: 10px 28px !important;
-    }}
-    .stDownloadButton > button:hover {{
-        opacity: 0.9 !important;
-    }}
-</style>
-""", unsafe_allow_html=True)
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# BACKEND LOGIC
-# ═══════════════════════════════════════════════════════════════════════════════
-
 def get_constellation(spectrogram_db, neighborhood_size=(10, 10), threshold_db=-40):
     """Find peaks in spectrogram using local max filtering."""
     local_max = ndimage.maximum_filter(spectrogram_db, size=neighborhood_size) == spectrogram_db
@@ -471,7 +149,6 @@ def process_audio_bytes(file_bytes, suffix=".wav"):
 # DATABASE LOADING
 # ═══════════════════════════════════════════════════════════════════════════════
 
-@st.cache_resource(show_spinner=False)
 def load_database():
     """
     Load the optimised song database.
@@ -513,8 +190,7 @@ def load_database():
             inner_db   = {k: [(name_to_id[n], t) for n, t in v] for k, v in raw.items()}
             return inner_db, id_to_name
 
-    st.error("❌ No song database file found. Place `song_database_optimized.pkl.xz` next to app.py.")
-    st.stop()
+    raise Exception("❌ No song database file found. Place `song_database_optimized.pkl.xz` next to app.py.")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -647,397 +323,184 @@ PIPELINE_STEPS = [
     ("🏆", "Scoring", "Ranking candidate matches"),
 ]
 
-def render_pipeline(container, current_step, times):
-    """Render the pipeline steps inside a given container."""
-    html = ""
-    for i, (icon, name, desc) in enumerate(PIPELINE_STEPS):
-        if i < current_step:
-            css_class = "pipeline-done"
-            status = f'✓ {times.get(i, "—")}'
-        elif i == current_step:
-            css_class = "pipeline-active"
-            status = "⏳ processing..."
-        else:
-            css_class = "pipeline-waiting"
-            status = "waiting"
-        html += f"""
-        <div class="pipeline-step {css_class}">
-            <span style="font-size:1.2rem">{icon}</span>
-            <span style="flex:1"><b>{name}</b> · <span style="font-size:0.82rem">{desc}</span></span>
-            <span style="font-size:0.82rem;opacity:0.7">{status}</span>
-        </div>
-        """
-    container.markdown(html, unsafe_allow_html=True)
-
-
 # ═══════════════════════════════════════════════════════════════════════════════
-# HEADER & DATABASE LOADING
+# GRADIO UI
 # ═══════════════════════════════════════════════════════════════════════════════
 
-st.markdown("""
-<div class="hero">
-    <div class="hero-title">🎵 Audio Fingerprinting System</div>
-    <div class="hero-sub">EE200 · Signal Processing · Shazam-style Song Identification</div>
-</div>
-""", unsafe_allow_html=True)
-
-with st.spinner("🔄 Loading song database…"):
+print("Loading database...")
+try:
     song_database, id_to_name = load_database()
-
-total_songs    = len(id_to_name)
-total_hashes_db = sum(len(v) for v in song_database.values())
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# TABS
-# ═══════════════════════════════════════════════════════════════════════════════
-tab_library, tab_identify, tab_batch = st.tabs(["📚 Library", "🔍 Identify", "📦 Batch"])
-
-# ─── Library Tab ─────────────────────────────────────────────────────────────
-with tab_library:
-    st.markdown('<div class="glass-card">', unsafe_allow_html=True)
-    col_stat1, col_stat2 = st.columns(2)
-    with col_stat1:
-        st.markdown(f"""
-        <div style="text-align:center">
-            <div style="font-size:2.5rem;font-weight:900;color:{CYAN}">{total_songs}</div>
-            <div style="font-size:0.85rem;color:{SUBTLE_TEXT};text-transform:uppercase;letter-spacing:1px">Songs Indexed</div>
-        </div>
-        """, unsafe_allow_html=True)
-    with col_stat2:
-        st.markdown(f"""
-        <div style="text-align:center">
-            <div style="font-size:2.5rem;font-weight:900;color:{ORANGE}">{total_hashes_db:,}</div>
-            <div style="font-size:0.85rem;color:{SUBTLE_TEXT};text-transform:uppercase;letter-spacing:1px">Total Fingerprints</div>
-        </div>
-        """, unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
-
+    total_songs = len(id_to_name)
+    total_hashes_db = sum(len(v) for v in song_database.values())
     song_names = sorted(id_to_name.values())
-    st.markdown(f'<div class="section-header">Indexed Songs</div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="section-sub">The database contains the following {len(song_names)} songs ready for identification</div>', unsafe_allow_html=True)
+    print(f"Loaded {total_songs} songs with {total_hashes_db} hashes.")
+except Exception as e:
+    print(e)
+    song_database, id_to_name = {}, {}
+    total_songs, total_hashes_db, song_names = 0, 0, []
 
-    cols = st.columns(3)
-    for idx, name in enumerate(song_names):
-        with cols[idx % 3]:
-            display_name = os.path.splitext(os.path.basename(name))[0] if '.' in name else name
-            st.markdown(f"""
-            <div class="lib-card">
-                <span class="lib-icon">🎶</span>
-                <span class="lib-name">{display_name}</span>
-            </div>
-            """, unsafe_allow_html=True)
-
-
-# ─── Identify Tab ────────────────────────────────────────────────────────────
-with tab_identify:
-    st.markdown(f"""
-    <div class="glass-card">
-        <div class="section-header">🎤 Upload Audio Clip</div>
-        <div class="section-sub">Drop a short audio clip (.mp3 or .wav) and we'll identify the song using spectral fingerprinting</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    uploaded_file = st.file_uploader(
-        "Choose an audio file",
-        type=["mp3", "wav"],
-        key="identify_uploader",
-        label_visibility="collapsed"
-    )
-
-    if uploaded_file is not None:
-        st.audio(uploaded_file)
-        identify_btn = st.button("🚀  Identify Song", type="primary", use_container_width=True)
-
-        if identify_btn:
-            st.markdown(f'<div class="section-header" style="margin-top:16px">⚡ Processing Pipeline</div>', unsafe_allow_html=True)
-            pipeline_placeholder = st.empty()
-
-            import random
-            render_pipeline(pipeline_placeholder, 0, {})
-            time.sleep(0.3)
-
-            # Actual processing
-            suffix = "." + uploaded_file.name.rsplit(".", 1)[-1]
-            query_hashes, query_spec, query_peaks, query_sr = process_audio_bytes(
-                uploaded_file.getvalue(), suffix=suffix
-            )
-
-            sim_times = {0: f"{random.randint(80, 160)} ms"}
-            render_pipeline(pipeline_placeholder, 1, sim_times)
-            time.sleep(0.3)
-            sim_times[1] = f"{random.randint(50, 130)} ms"
-            render_pipeline(pipeline_placeholder, 2, sim_times)
-            time.sleep(0.25)
-            sim_times[2] = f"{random.randint(60, 140)} ms"
-            render_pipeline(pipeline_placeholder, 3, sim_times)
-            time.sleep(0.3)
-
-            # Actual matching
-            best_song, max_aligned, best_offsets, candidate_scores, total_q_hashes = match_query(
-                query_hashes, song_database, id_to_name
-            )
-
-            sim_times[3] = f"{random.randint(90, 250)} ms"
-            render_pipeline(pipeline_placeholder, 4, sim_times)
-            time.sleep(0.25)
-            sim_times[4] = f"{random.randint(30, 90)} ms"
-            render_pipeline(pipeline_placeholder, len(PIPELINE_STEPS), sim_times)
-
-            st.markdown("---")
-
-            # ── Result Banner ──
-            if best_song and max_aligned > 0:
-                display_name = os.path.splitext(os.path.basename(best_song))[0] if '.' in best_song else best_song
-                st.markdown(f"""
-                <div class="match-banner">
-                    <div class="match-label">✨ MATCH FOUND ✨</div>
-                    <div class="match-song">{display_name}</div>
-                    <div class="match-stats">
-                        <div class="stat-item">
-                            <div class="stat-value">{max_aligned}</div>
-                            <div class="stat-label">Cluster Score</div>
-                        </div>
-                        <div class="stat-item">
-                            <div class="stat-value">{total_q_hashes:,}</div>
-                            <div class="stat-label">Total Hashes</div>
-                        </div>
-                        <div class="stat-item">
-                            <div class="stat-value">{len(candidate_scores)}</div>
-                            <div class="stat-label">Candidates</div>
-                        </div>
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
-
-                # ── Candidate scores table ──
-                top_candidates = list(candidate_scores.items())[:5]
-                if top_candidates:
-                    st.markdown(f'<div class="section-header" style="margin-top:20px">📊 Top 5 Candidates</div>', unsafe_allow_html=True)
-                    st.markdown(f'<div class="section-sub">Top 5 potential matches ranked by alignment score</div>', unsafe_allow_html=True)
-                    
-                    # FIXED STRING INDENTATION BUG:
-                    table_html = '<div class="glass-card"><table class="candidate-table"><thead><tr><th>Rank</th><th>Song</th><th>Score</th></tr></thead><tbody>'
-                    for rank, (cname, cscore) in enumerate(top_candidates, 1):
-                        cdisplay = os.path.splitext(os.path.basename(cname))[0] if '.' in cname else cname
-                        table_html += f'<tr><td><span class="candidate-rank">#{rank}</span></td><td><span class="candidate-name">{cdisplay}</span></td><td><span class="candidate-score">{cscore}</span></td></tr>'
-                    table_html += '</tbody></table></div>'
-                    
-                    st.markdown(table_html, unsafe_allow_html=True)
-
-                # STEP 1: Feature Extraction
-                st.markdown("---")
-                st.markdown(f"""
-                <div class="section-header">Step 1 · Feature Extraction</div>
-                <div class="section-sub">From spectrogram to constellation</div>
-                <p style="color:{SUBTLE_TEXT};font-size:0.92rem;line-height:1.7;margin:8px 0 20px 0;">
-                    The clip was converted into a time-frequency map (left); brighter means louder
-                    at that frequency and moment. From that rich image, only the
-                    <b style="color:{CYAN};">{len(query_peaks):,} most prominent peaks</b>
-                    were kept (right). Discarding amplitude and phase makes the fingerprint
-                    robust to EQ, volume changes, and noise.
-                </p>
-                """, unsafe_allow_html=True)
-
-                col1, col2 = st.columns(2)
-                with col1:
-                    fig_spec = plot_spectrogram(query_spec, query_sr, title="Query Spectrogram")
-                    st.pyplot(fig_spec)
-                    plt.close(fig_spec)
-                with col2:
-                    fig_const = plot_constellation(query_spec, query_peaks, query_sr, title="Query Constellation")
-                    st.pyplot(fig_const)
-                    plt.close(fig_const)
-
-                # STEP 2: Database Search
-                st.markdown("---")
-
-                offset_counts = Counter(best_offsets)
-                most_common_offset, _ = offset_counts.most_common(1)[0]
-                hop_length = 256
-                query_duration_frames = query_spec.shape[1]
-                query_duration_seconds = query_duration_frames * hop_length / query_sr
-                query_offset_seconds = most_common_offset * hop_length / query_sr
-                if query_offset_seconds < 0:
-                    query_offset_seconds = 0
-
-                offset_min = int(query_offset_seconds // 60)
-                offset_sec = query_offset_seconds % 60
-                end_sec    = query_offset_seconds + query_duration_seconds
-                end_min    = int(end_sec // 60)
-                end_sec_r  = end_sec % 60
-
-                st.markdown(f"""
-                <div class="section-header">Step 2 · Database Search</div>
-                <div class="section-sub">Where in the song?</div>
-                <p style="color:{SUBTLE_TEXT};font-size:0.92rem;line-height:1.7;margin:8px 0 16px 0;">
-                    The <b style="color:{CYAN};">{total_q_hashes:,} fingerprint hashes</b> were looked up
-                    against every indexed track. Each hash encodes a pair of spectral peaks and their
-                    time gap — a compact, noise-robust fingerprint of the audio texture.
-                    Your {query_duration_seconds:.1f}s clip best aligned with
-                    <i style="color:{WHITE};">{display_name}</i> at timestamp
-                    <b style="color:{ORANGE};">{offset_min:02d}:{offset_sec:05.2f}</b>.
-                </p>
-                """, unsafe_allow_html=True)
-
-                # Lightweight alignment card
-                st.markdown(f"""
-                <div class="glass-card" style="text-align:center;padding:28px;">
-                    <div style="font-size:0.8rem;font-weight:700;letter-spacing:3px;
-                                text-transform:uppercase;color:{CYAN};margin-bottom:10px;">📍 Query Aligned At</div>
-                    <div style="font-size:2rem;font-weight:900;color:{WHITE};margin-bottom:6px;">
-                        {offset_min:02d}:{offset_sec:05.2f} &rarr; {end_min:02d}:{end_sec_r:05.2f}
-                    </div>
-                    <div style="font-size:0.85rem;color:{SUBTLE_TEXT};">
-                        Your <b style="color:{WHITE};">{query_duration_seconds:.1f}s</b> clip
-                        matches this segment of <b style="color:{WHITE};">{display_name}</b>
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
-
-                # Lightweight alignment card
-                st.markdown(f"""
-                <div class="glass-card" style="text-align:center;padding:28px;">
-                    <div style="font-size:0.8rem;font-weight:700;letter-spacing:3px;
-                                text-transform:uppercase;color:{CYAN};margin-bottom:10px;">📍 Query Aligned At</div>
-                    <div style="font-size:2rem;font-weight:900;color:{WHITE};margin-bottom:6px;">
-                        {offset_min:02d}:{offset_sec:05.2f} &rarr; {end_min:02d}:{end_sec_r:05.2f}
-                    </div>
-                    <div style="font-size:0.85rem;color:{SUBTLE_TEXT};">
-                        Your <b style="color:{WHITE};">{query_duration_seconds:.1f}s</b> clip
-                        matches this segment of <b style="color:{WHITE};">{display_name}</b>
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
-
-                # Full song constellation with aligned window (OOM-safe version)
-                name_to_id = {v: k for k, v in id_to_name.items()}
-                best_song_id = name_to_id.get(best_song)
-                full_song_peaks_set = set()
+def identify_audio(audio_path):
+    if not audio_path:
+        return "Please upload an audio file.", None, None, None, None, None
+        
+    try:
+        if audio_path.lower().endswith(".mp3"):
+            wav_path = audio_path[:-4] + "_converted.wav"
+            import subprocess
+            subprocess.run(["ffmpeg", "-y", "-i", audio_path, "-ar", "22050", "-ac", "1", "-loglevel", "error", wav_path], check=True)
+            process_path = wav_path
+        else:
+            process_path = audio_path
+            
+        query_hashes, query_spec, query_peaks, query_sr = process_audio_file(process_path)
+        best_song, max_aligned, best_offsets, candidate_scores, total_q_hashes = match_query(query_hashes, song_database, id_to_name)
+        
+        if best_song and max_aligned > 0:
+            display_name = os.path.splitext(os.path.basename(best_song))[0] if '.' in best_song else best_song
+            
+            top_candidates = list(candidate_scores.items())[:5]
+            df_candidates = pd.DataFrame(top_candidates, columns=["Song", "Score"])
+            df_candidates["Rank"] = range(1, len(df_candidates) + 1)
+            df_candidates = df_candidates[["Rank", "Song", "Score"]]
+            
+            fig_spec = plot_spectrogram(query_spec, query_sr, title="Query Spectrogram")
+            fig_const = plot_constellation(query_spec, query_peaks, query_sr, title="Query Constellation")
+            
+            from collections import Counter
+            offset_counts = Counter(best_offsets)
+            most_common_offset, _ = offset_counts.most_common(1)[0]
+            hop_length = 256
+            query_duration_frames = query_spec.shape[1]
+            query_duration_seconds = query_duration_frames * hop_length / query_sr
+            query_offset_seconds = most_common_offset * hop_length / query_sr
+            if query_offset_seconds < 0:
+                query_offset_seconds = 0
                 
-                # Iterate DB and collect only the peaks for the matched song
-                for hash_key, entries in song_database.items():
-                    for sid, t1 in entries:
-                        if sid == best_song_id:
-                            f1, f2, td = hash_key
-                            full_song_peaks_set.add((f1, t1))
-                            full_song_peaks_set.add((f2, t1 + td))
-
-                if full_song_peaks_set:
-                    full_peaks_arr = np.array(list(full_song_peaks_set))
-                    max_time_frames = full_peaks_arr[:, 1].max() + 1
-                    
-                    fig_full = plot_full_song_constellation_with_window(
-                        full_peaks_arr, query_sr,
-                        query_offset_seconds, query_duration_seconds,
-                        display_name, max_time_frames
-                    )
-                    st.pyplot(fig_full)
-                    plt.close(fig_full)
-                    del full_peaks_arr, full_song_peaks_set
-
-                # STEP 3: The Proof
-                st.markdown("---")
-                st.markdown(f"""
-                <div class="section-header">Step 3 · The Proof</div>
-                <div class="section-sub">The alignment spike</div>
-                <p style="color:{SUBTLE_TEXT};font-size:0.92rem;line-height:1.7;margin:8px 0 20px 0;">
-                    Every matched hash votes for a time offset (database frame minus query frame).
-                    Chance matches scatter votes randomly, forming a flat noise floor.
-                    A genuine match makes them converge:
-                    <b style="color:{ORANGE};">{max_aligned:,} hashes agreed on a single offset</b>.
-                    That spike cannot be a coincidence.
-                </p>
-                """, unsafe_allow_html=True)
-
-                fig_hist = plot_offset_histogram(best_offsets, query_sr, hop_length=hop_length)
-                if fig_hist:
-                    st.pyplot(fig_hist)
-                    plt.close(fig_hist)
-
-            else:
-                st.markdown(f"""
-                <div class="no-match-banner">
-                    <div class="no-match-label">❌ No Match Found</div>
-                    <div style="color:{SUBTLE_TEXT};margin-top:8px">
-                        The audio clip could not be matched to any song in the database.
-                        Try a longer or cleaner clip.
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
-
-
-# ─── Batch Tab ───────────────────────────────────────────────────────────────
-with tab_batch:
-    st.markdown(f"""
-    <div class="glass-card">
-        <div class="section-header">📦 Batch Identification</div>
-        <div class="section-sub">Upload multiple audio clips at once for bulk identification. Results are exported as a grading-compatible CSV.</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    batch_files = st.file_uploader(
-        "Upload audio clips",
-        type=["mp3", "wav"],
-        accept_multiple_files=True,
-        key="batch_uploader",
-        label_visibility="collapsed"
-    )
-
-    if batch_files:
-        st.markdown(f'<div style="color:{SUBTLE_TEXT};margin-bottom:8px">{len(batch_files)} files selected</div>', unsafe_allow_html=True)
-        run_batch = st.button("🚀  Run Batch Identification", type="primary", use_container_width=True)
-
-        if run_batch:
-            results = []
-            progress_bar = st.progress(0, text="Processing batch…")
-
-            for i, bf in enumerate(batch_files):
-                progress_bar.progress(
-                    (i) / len(batch_files),
-                    text=f"Processing {bf.name} ({i+1}/{len(batch_files)})…"
+            offset_min = int(query_offset_seconds // 60)
+            offset_sec = query_offset_seconds % 60
+            end_sec = query_offset_seconds + query_duration_seconds
+            end_min = int(end_sec // 60)
+            end_sec_r = end_sec % 60
+            
+            match_text = f"### ✨ MATCH FOUND: {display_name} ✨\n"
+            match_text += f"**Cluster Score:** {max_aligned} | **Total Hashes:** {total_q_hashes:,} | **Candidates:** {len(candidate_scores)}\n"
+            match_text += f"\n**📍 Query Aligned At:** {offset_min:02d}:{offset_sec:05.2f} → {end_min:02d}:{end_sec_r:05.2f}"
+            
+            name_to_id = {v: k for k, v in id_to_name.items()}
+            best_song_id = name_to_id.get(best_song)
+            full_song_peaks_set = set()
+            for hash_key, entries in song_database.items():
+                for sid, t1 in entries:
+                    if sid == best_song_id:
+                        f1, f2, td = hash_key
+                        full_song_peaks_set.add((f1, t1))
+                        full_song_peaks_set.add((f2, t1 + td))
+                        
+            fig_full = None
+            if full_song_peaks_set:
+                import numpy as np
+                full_peaks_arr = np.array(list(full_song_peaks_set))
+                max_time = full_peaks_arr[:, 1].max() + 1
+                max_freq = full_peaks_arr[:, 0].max() + 1
+                dummy_spec = np.full((int(max_freq), int(max_time)), -80.0)
+                for fp, ft in full_song_peaks_set:
+                    if int(fp) < dummy_spec.shape[0] and int(ft) < dummy_spec.shape[1]:
+                        dummy_spec[int(fp), int(ft)] = -10.0
+                fig_full = plot_full_song_constellation_with_window(
+                    dummy_spec, full_peaks_arr, query_sr,
+                    query_offset_seconds, query_duration_seconds,
+                    display_name
                 )
-                suffix = "." + bf.name.rsplit(".", 1)[-1]
-                try:
-                    q_hashes, _, _, _ = process_audio_bytes(bf.getvalue(), suffix=suffix)
-                    # Get matches without minimum threshold
-                    best, score, _, _, _ = match_query(q_hashes, song_database, id_to_name)
-                    if best and score > 0:
-                        prediction = os.path.splitext(os.path.basename(best))[0]
-                    else:
-                        prediction = "None"
-                except Exception as e:
-                    prediction = "None"
+                
+            fig_hist = plot_offset_histogram(best_offsets, query_sr, hop_length=hop_length)
+            
+            return match_text, df_candidates, fig_spec, fig_const, fig_full, fig_hist
+            
+        else:
+            return "❌ No Match Found.", None, None, None, None, None
+            
+    except Exception as e:
+        import traceback
+        return f"Error: {str(e)}\n{traceback.format_exc()}", None, None, None, None, None
 
-                results.append({"filename": bf.name, "prediction": prediction})
+def batch_process(files):
+    if not files:
+        return pd.DataFrame()
+        
+    results = []
+    for f in files:
+        try:
+            audio_path = f.name
+            if audio_path.lower().endswith(".mp3"):
+                wav_path = audio_path[:-4] + "_converted.wav"
+                import subprocess
+                subprocess.run(["ffmpeg", "-y", "-i", audio_path, "-ar", "22050", "-ac", "1", "-loglevel", "error", wav_path], check=True)
+                process_path = wav_path
+            else:
+                process_path = audio_path
+                
+            q_hashes, _, _, _ = process_audio_file(process_path)
+            best, score, _, _, _ = match_query(q_hashes, song_database, id_to_name)
+            
+            if best and score > 0:
+                prediction = os.path.splitext(os.path.basename(best))[0]
+                status = "✅"
+            else:
+                prediction = "None"
+                status = "❌"
+        except Exception as e:
+            prediction = f"Error: {str(e)}"
+            status = "❌"
+            
+        results.append({"Status": status, "File": os.path.basename(f.name), "Prediction": prediction})
+        
+    return pd.DataFrame(results)
 
-            progress_bar.progress(1.0, text="✅ Batch complete!")
-            time.sleep(0.3)
-            progress_bar.empty()
+css = """
+.gradio-container { font-family: 'Inter', sans-serif; }
+"""
 
-            st.markdown(f'<div class="section-header" style="margin-top:16px">Results</div>', unsafe_allow_html=True)
-            for r in results:
-                is_match = r["prediction"] != "None"
-                match_class = "batch-match" if is_match else "batch-none"
-                icon = "✅" if is_match else "❌"
-                st.markdown(f"""
-                <div class="batch-result-row">
-                    <span style="font-size:1.1rem">{icon}</span>
-                    <span class="batch-file">{r['filename']}</span>
-                    <span class="{match_class}">{r['prediction']}</span>
-                </div>
-                """, unsafe_allow_html=True)
-
-            csv_buffer = io.StringIO()
-            writer = csv.DictWriter(csv_buffer, fieldnames=["filename", "prediction"])
-            writer.writeheader()
-            writer.writerows(results)
-            csv_bytes = csv_buffer.getvalue().encode("utf-8")
-
-            st.markdown("<br>", unsafe_allow_html=True)
-            st.download_button(
-                label="⬇️  Download results.csv",
-                data=csv_bytes,
-                file_name="results.csv",
-                mime="text/csv",
-                use_container_width=True
+with gr.Blocks(title="Audio Fingerprint | EE200") as demo:
+    gr.Markdown("# 🎵 Audio Fingerprinting System\n*EE200 · Signal Processing · Shazam-style Song Identification*")
+    
+    with gr.Tabs():
+        with gr.Tab("📚 Library"):
+            with gr.Row():
+                gr.Number(value=total_songs, label="Songs Indexed", interactive=False)
+                gr.Number(value=total_hashes_db, label="Total Fingerprints", interactive=False)
+            
+            df_songs = pd.DataFrame({"Indexed Songs": [os.path.splitext(os.path.basename(n))[0] if '.' in n else n for n in song_names]})
+            gr.Dataframe(value=df_songs, interactive=False)
+            
+        with gr.Tab("🔍 Identify"):
+            gr.Markdown("Drop a short audio clip (.mp3 or .wav) and we'll identify the song using spectral fingerprinting.")
+            with gr.Row():
+                audio_input = gr.Audio(type="filepath", label="Upload Audio Clip")
+            
+            identify_btn = gr.Button("🚀 Identify Song", variant="primary")
+            match_output = gr.Markdown()
+            candidates_output = gr.Dataframe(label="Top 5 Candidates")
+            
+            with gr.Row():
+                plot_spec = gr.Plot(label="Query Spectrogram")
+                plot_const = gr.Plot(label="Query Constellation")
+                
+            plot_full = gr.Plot(label="Full Song Constellation (Alignment Window)")
+            plot_hist = gr.Plot(label="Alignment Spike (Offset Histogram)")
+            
+            identify_btn.click(
+                fn=identify_audio,
+                inputs=audio_input,
+                outputs=[match_output, candidates_output, plot_spec, plot_const, plot_full, plot_hist]
             )
+            
+        with gr.Tab("📦 Batch"):
+            gr.Markdown("Upload multiple clips to identify them all at once.")
+            batch_files = gr.File(file_count="multiple", label="Upload Audio Files")
+            batch_btn = gr.Button("Process Batch", variant="primary")
+            batch_output = gr.Dataframe(label="Batch Results")
+            
+            batch_btn.click(fn=batch_process, inputs=batch_files, outputs=batch_output)
+
+if __name__ == "__main__":
+    demo.launch(theme=gr.themes.Monochrome(), css=css)
