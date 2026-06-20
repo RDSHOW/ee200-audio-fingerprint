@@ -559,13 +559,17 @@ def plot_constellation(db_spectrogram, peaks, sr, title="Constellation Map"):
     return fig
 
 
-def plot_full_song_constellation_with_window(db_spec_full, peaks_full, sr, query_offset_time, query_duration_time, song_name):
-    """Plot the full song's constellation and highlight where the query aligned."""
+def plot_full_song_constellation_with_window(peaks_full, sr, query_offset_time, query_duration_time, song_name, max_time_frames):
+    """Plot the full song's constellation and highlight where the query aligned, without using memory-heavy arrays."""
     fig, ax = plt.subplots(figsize=(14, 4))
-    librosa.display.specshow(
-        db_spec_full, sr=sr, hop_length=256,
-        x_axis="time", y_axis="hz", ax=ax, cmap="magma", alpha=0.35
-    )
+    
+    # Simulate the dark background of a spectrogram without creating a 50MB array
+    ax.set_facecolor("#111116")
+    
+    # Calculate limits
+    max_time_sec = max_time_frames * 256 / sr
+    ax.set_xlim(0, max_time_sec)
+    ax.set_ylim(0, sr / 2)
     freq_bins = peaks_full[:, 0]
     time_bins = peaks_full[:, 1]
     freqs = freq_bins * sr / 512
@@ -890,10 +894,46 @@ with tab_identify:
                 </div>
                 """, unsafe_allow_html=True)
 
-                # The full song constellation visualization has been removed
-                # because iterating through the entire database and creating
-                # a huge dummy_spec array exceeds Streamlit Cloud's 1GB memory limit.
-                # The lightweight alignment card above now serves as the Step 2 result.
+                # Lightweight alignment card
+                st.markdown(f"""
+                <div class="glass-card" style="text-align:center;padding:28px;">
+                    <div style="font-size:0.8rem;font-weight:700;letter-spacing:3px;
+                                text-transform:uppercase;color:{CYAN};margin-bottom:10px;">📍 Query Aligned At</div>
+                    <div style="font-size:2rem;font-weight:900;color:{WHITE};margin-bottom:6px;">
+                        {offset_min:02d}:{offset_sec:05.2f} &rarr; {end_min:02d}:{end_sec_r:05.2f}
+                    </div>
+                    <div style="font-size:0.85rem;color:{SUBTLE_TEXT};">
+                        Your <b style="color:{WHITE};">{query_duration_seconds:.1f}s</b> clip
+                        matches this segment of <b style="color:{WHITE};">{display_name}</b>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+
+                # Full song constellation with aligned window (OOM-safe version)
+                name_to_id = {v: k for k, v in id_to_name.items()}
+                best_song_id = name_to_id.get(best_song)
+                full_song_peaks_set = set()
+                
+                # Iterate DB and collect only the peaks for the matched song
+                for hash_key, entries in song_database.items():
+                    for sid, t1 in entries:
+                        if sid == best_song_id:
+                            f1, f2, td = hash_key
+                            full_song_peaks_set.add((f1, t1))
+                            full_song_peaks_set.add((f2, t1 + td))
+
+                if full_song_peaks_set:
+                    full_peaks_arr = np.array(list(full_song_peaks_set))
+                    max_time_frames = full_peaks_arr[:, 1].max() + 1
+                    
+                    fig_full = plot_full_song_constellation_with_window(
+                        full_peaks_arr, query_sr,
+                        query_offset_seconds, query_duration_seconds,
+                        display_name, max_time_frames
+                    )
+                    st.pyplot(fig_full)
+                    plt.close(fig_full)
+                    del full_peaks_arr, full_song_peaks_set
 
                 # STEP 3: The Proof
                 st.markdown("---")
