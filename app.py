@@ -168,8 +168,9 @@ def load_database():
     """
     base_dir = os.path.dirname(__file__)
 
-    # ── optimised format (xz or gz) ──────────────────────────────────────────
+    # ── optimised format (xz, gz, or plain pkl) ──────────────────────────────
     for fname, opener in [
+        ("song_database_optimized.pkl", open),
         ("song_database_optimized.pkl.xz", lzma.open),
         ("song_database_optimized.pkl.gz", gzip.open),
     ]:
