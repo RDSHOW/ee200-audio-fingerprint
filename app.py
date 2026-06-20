@@ -895,21 +895,6 @@ with tab_identify:
                 </div>
                 """, unsafe_allow_html=True)
 
-                # Lightweight alignment card
-                st.markdown(f"""
-                <div class="glass-card" style="text-align:center;padding:28px;">
-                    <div style="font-size:0.8rem;font-weight:700;letter-spacing:3px;
-                                text-transform:uppercase;color:{CYAN};margin-bottom:10px;">📍 Query Aligned At</div>
-                    <div style="font-size:2rem;font-weight:900;color:{WHITE};margin-bottom:6px;">
-                        {offset_min:02d}:{offset_sec:05.2f} &rarr; {end_min:02d}:{end_sec_r:05.2f}
-                    </div>
-                    <div style="font-size:0.85rem;color:{SUBTLE_TEXT};">
-                        Your <b style="color:{WHITE};">{query_duration_seconds:.1f}s</b> clip
-                        matches this segment of <b style="color:{WHITE};">{display_name}</b>
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
-
                 # Full song constellation with aligned window (OOM-safe version)
                 name_to_id = {v: k for k, v in id_to_name.items()}
                 best_song_id = name_to_id.get(best_song)
