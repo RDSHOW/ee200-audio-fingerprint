@@ -1,11 +1,12 @@
-# Large database files (too big for GitHub — use song_database_optimized.pkl.xz instead)
+# Large/wrong-format database files
 song_database.pkl
 song_database_optimized.pkl
-song_database.bin.gz
-song_database.bin.xz
+song_database_optimized.pkl.xz
 song_database_optimized.pkl.gz
 song_database_packed.pkl.gz
 song_database_small.pkl.gz
+song_database.bin.gz
+song_database.bin.xz
 song_database_subsampled.bin.xz
 song_map.pkl
 *.zip
@@ -13,17 +14,15 @@ song_map.pkl
 # Python
 __pycache__/
 *.py[cod]
-*.pyo
 .venv/
-venv/
 .env
 
-# Audio test files (not needed for deployment)
+# Audio files
 *.mp3
 *.ogg
 *.wav
 
-# Jupyter notebooks output (keep .ipynb but ignore checkpoints)
+# Jupyter
 .ipynb_checkpoints/
 
 # OS

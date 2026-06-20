@@ -437,32 +437,26 @@ def process_audio_bytes(file_bytes, suffix=".wav"):
 
 @st.cache_resource(show_spinner=False)
 def load_database():
-    """Load the song database, preferring compressed files for deployment."""
+    """Load the song database — tries compressed deploy file first, then plain pkl."""
     base_dir = os.path.dirname(__file__)
 
-    # Priority order: optimized xz → optimized gz → packed gz → plain pkl
+    # Priority order: correct-format compressed → plain pkl
     candidates = [
-        ("song_database_optimized.pkl.xz",  "xz"),
-        ("song_database_optimized.pkl.gz",   "gz"),
-        ("song_database_packed.pkl.gz",      "gz"),
-        ("song_database_small.pkl.gz",       "gz"),
-        ("song_database.pkl",               "pkl"),
+        ("song_database_deploy.pkl.gz", "gz"),
+        ("song_database.pkl",           "pkl"),
     ]
 
     for filename, fmt in candidates:
         db_path = os.path.join(base_dir, filename)
         if os.path.exists(db_path):
-            if fmt == "xz":
-                with lzma.open(db_path, "rb") as f:
-                    return pickle.load(f)
-            elif fmt == "gz":
+            if fmt == "gz":
                 with gzip.open(db_path, "rb") as f:
                     return pickle.load(f)
             else:
                 with open(db_path, "rb") as f:
                     return pickle.load(f)
 
-    st.error("❌ No song database file found. Please place `song_database_optimized.pkl.xz` in the same directory as app.py.")
+    st.error("❌ No song database file found. Please place `song_database_deploy.pkl.gz` in the same directory as app.py.")
     st.stop()
 
 
