@@ -29,6 +29,15 @@ logging.getLogger("audioread").setLevel(logging.ERROR)
 warnings.filterwarnings("ignore", message=".*Illegal Audio-MPEG-Header.*")
 warnings.filterwarnings("ignore", message=".*resync.*")
 os.environ.setdefault("AUDIOREAD_BACKEND", "ffmpeg")  # prefer ffmpeg over libmad
+
+CYAN = "#00e5ff"
+ORANGE = "#ffab40"
+SUBTLE_TEXT = "#8b949e"
+WHITE = "#ffffff"
+CARD_BG = "#161b22"
+BORDER = "#30363d"
+DARK_BG = "#0d1117"
+
 def get_constellation(spectrogram_db, neighborhood_size=(10, 10), threshold_db=-40):
     """Find peaks in spectrogram using local max filtering."""
     local_max = ndimage.maximum_filter(spectrogram_db, size=neighborhood_size) == spectrogram_db
