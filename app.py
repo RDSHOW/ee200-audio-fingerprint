@@ -890,33 +890,10 @@ with tab_identify:
                 </div>
                 """, unsafe_allow_html=True)
 
-                # Full song constellation with aligned window
-                name_to_id = {v: k for k, v in id_to_name.items()}
-                best_song_id = name_to_id.get(best_song)
-                full_song_peaks_set = set()
-                for hash_key, entries in song_database.items():
-                    for sid, t1 in entries:
-                        if sid == best_song_id:
-                            f1, f2, td = hash_key
-                            full_song_peaks_set.add((f1, t1))
-                            full_song_peaks_set.add((f2, t1 + td))
-
-                if full_song_peaks_set:
-                    full_peaks_arr = np.array(list(full_song_peaks_set))
-                    max_time = full_peaks_arr[:, 1].max() + 1
-                    max_freq = full_peaks_arr[:, 0].max() + 1
-                    dummy_spec = np.full((int(max_freq), int(max_time)), -80.0)
-                    for fp, ft in full_song_peaks_set:
-                        if int(fp) < dummy_spec.shape[0] and int(ft) < dummy_spec.shape[1]:
-                            dummy_spec[int(fp), int(ft)] = -10.0
-                    fig_full = plot_full_song_constellation_with_window(
-                        dummy_spec, full_peaks_arr, query_sr,
-                        query_offset_seconds, query_duration_seconds,
-                        display_name
-                    )
-                    st.pyplot(fig_full)
-                    plt.close(fig_full)
-                    del dummy_spec, full_peaks_arr, full_song_peaks_set
+                # The full song constellation visualization has been removed
+                # because iterating through the entire database and creating
+                # a huge dummy_spec array exceeds Streamlit Cloud's 1GB memory limit.
+                # The lightweight alignment card above now serves as the Step 2 result.
 
                 # STEP 3: The Proof
                 st.markdown("---")
