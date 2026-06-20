@@ -19,6 +19,14 @@ import time
 import tempfile
 import io
 import csv
+import warnings
+import logging
+
+# Suppress noisy libmad / audioread MP3-header warnings in logs
+logging.getLogger("audioread").setLevel(logging.ERROR)
+warnings.filterwarnings("ignore", message=".*Illegal Audio-MPEG-Header.*")
+warnings.filterwarnings("ignore", message=".*resync.*")
+os.environ.setdefault("AUDIOREAD_BACKEND", "ffmpeg")  # prefer ffmpeg over libmad
 
 # ─── Page Config ─────────────────────────────────────────────────────────────
 st.set_page_config(
